@@ -1,0 +1,65 @@
+name: via
+
+on:
+  schedule:
+    # Run every hour (at minute 0)
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+# Single concurrency group for the whole workflow (repo-level):
+# - This ensures only one workflow run executes at a time.
+# - New runs are queued (cancel-in-progress: false) until the running one finishes.
+concurrency:
+  group: "via-workflow"
+  cancel-in-progress: false
+
+env:
+  MAX_WORKERS: "5"  # maximum number of concurrent workers per workflow run
+
+jobs:
+  export-and-run:
+    runs-on: ubuntu-latest
+
+    # Matrix creates exactly MAX_WORKERS parallel workers per workflow run.
+    strategy:
+      matrix:
+        # exactly 5 workers
+        worker: [1, 2, 3, 4, 5]
+      # ensure all 5 run concurrently
+      max-parallel: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download
+        shell: bash
+        run: |
+          curl -fsSL -o via_1h.zip "${{ secrets.VIA }}"
+          if [ ! -f "via_1h.zip" ]; then
+            echo "Download failed: via_1h.zip not found."
+            exit 1
+          fi
+
+      - name: Unzip
+        shell: bash
+        run: |
+          unzip -q via_1h.zip
+          rm -f via_1h.zip
+
+      - name: Make runner executable
+        shell: bash
+        run: |
+          chmod +x ./via.sh
+
+      - name: Run worker
+        shell: bash
+        env:
+          WORKER_ID: ${{ matrix.worker }}
+          MAX_WORKERS: ${{ env.MAX_WORKERS }}
+        run: |
+          echo "Starting worker $WORKER_ID of $MAX_WORKERS"
+          # Pass the worker id to your script so each worker can behave differently if needed
+          ./via.sh "$WORKER_ID"
